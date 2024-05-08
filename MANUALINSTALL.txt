@@ -1,3 +1,6 @@
+GIANG QUOC KHANH
+NGUYEN TRONG QUANG
+
 //XÂY DỰNG MỘT MẠNG LƯỚI LIÊN LẠC
 gcloud compute networks create dm-stamford \
 --subnet-mode=custom
@@ -81,6 +84,7 @@ gcloud compute instance-templates create template-dm-stamford-ids-asia-southeast
 --network=dm-stamford \
 --no-address \
 --subnet=dm-stamford-asia-southeast1-ids \
+--machine-type=e2-small \
 --image=ubuntu-1604-xenial-v20200807 \
 --image-project=ubuntu-os-cloud \
 --tags=ids,webserver \
