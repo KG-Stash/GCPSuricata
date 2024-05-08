@@ -1,0 +1,201 @@
+//XÂY DỰNG MỘT MẠNG LƯỚI LIÊN LẠC
+gcloud compute networks create dm-stamford \
+--subnet-mode=custom
+
+gcloud compute networks subnets create dm-stamford-asia-southeast1 \
+--range=172.21.0.0/24 \
+--network=dm-stamford \
+--region=asia-southeast1
+
+gcloud compute networks subnets create dm-stamford-asia-southeast1-ids \
+--range=172.21.1.0/24 \
+--network=dm-stamford \
+--region=asia-southeast1
+
+//TẠO RULES FIREWALL VÀ CLOUD NAT
+gcloud compute firewall-rules create fw-dm-stamford-allow-any-web \
+--direction=INGRESS \
+--priority=1000 \
+--network=dm-stamford \
+--action=ALLOW \
+--rules=tcp:80,icmp \
+--source-ranges=0.0.0.0/0
+
+gcloud compute firewall-rules create fw-dm-stamford-ids-any-any \
+--direction=INGRESS \
+--priority=1000 \
+--network=dm-stamford \
+--action=ALLOW \
+--rules=all \
+--source-ranges=0.0.0.0/0 \
+--target-tags=ids
+
+gcloud compute firewall-rules create fw-dm-stamford-iapproxy \
+--direction=INGRESS \
+--priority=1000 \
+--network=dm-stamford \
+--action=ALLOW \
+--rules=tcp:22,icmp \
+--source-ranges=35.235.240.0/20
+
+//TẠO CLOUD ROUTER
+gcloud compute routers create router-stamford-nat-asia-southeast1 \
+--region=asia-southeast1 \
+--network=dm-stamford
+
+//CẤU HÌNH CLOUD NAT
+gcloud compute routers nats create nat-gw-dm-stamford-asia-southeast1 \
+--router=router-stamford-nat-asia-southeast1 \
+--router-region=asia-southeast1 \
+--auto-allocate-nat-external-ips \
+--nat-all-subnet-ip-ranges
+
+//TẠO MÁY ẢO
+//TẠO INSTANCE TEMPLATE CHO WEB SERVER
+gcloud compute instance-templates create template-dm-stamford-web-asia-southeast1 \
+--region=asia-southeast1 \
+--network=dm-stamford \
+--subnet=dm-stamford-asia-southeast1 \
+--machine-type=e2-small \
+--image=ubuntu-1604-xenial-v20200807 \
+--image-project=ubuntu-os-cloud \
+--tags=webserver \
+--metadata=startup-script='#! /bin/bash
+  apt-get update
+  apt-get install apache2 -y
+  vm_hostname="$(curl -H "Metadata-Flavor:Google" \
+  http://169.254.169.254/computeMetadata/v1/instance/name)"
+  echo "Page served from: $vm_hostname" | \
+  tee /var/www/html/index.html
+  systemctl restart apache2'
+  
+//TẠO NHÓM INSTANCE ĐƯỢC QUẢN LÝ CHO CÁC WEB SERVER
+gcloud compute instance-groups managed create mig-dm-stamford-web-asia-southeast1 \
+    --template=template-dm-stamford-web-asia-southeast1 \
+    --size=2 \
+    --zone="asia-southeast1-a"
+
+//TẠO INSTANCE TEMPLATE CHO MÁY ẢO IDS
+gcloud compute instance-templates create template-dm-stamford-ids-asia-southeast1 \
+--region=asia-southeast1 \
+--network=dm-stamford \
+--no-address \
+--subnet=dm-stamford-asia-southeast1-ids \
+--image=ubuntu-1604-xenial-v20200807 \
+--image-project=ubuntu-os-cloud \
+--tags=ids,webserver \
+--metadata=startup-script='#! /bin/bash
+  apt-get update
+  apt-get install apache2 -y
+  vm_hostname="$(curl -H "Metadata-Flavor:Google" \
+  http://169.254.169.254/computeMetadata/v1/instance/name)"
+  echo "Page served from: $vm_hostname" | \
+  tee /var/www/html/index.html
+  systemctl restart apache2'
+  
+//TẠO NHÓM INSTANCE ĐƯỢC QUẢN LÝ CHO MÁY ẢO IDS
+gcloud compute instance-groups managed create mig-dm-stamford-ids-asia-southeast1 \
+    --template=template-dm-stamford-ids-asia-southeast1 \
+    --size=1 \
+    --zone="asia-southeast1-a"
+
+//TẠO BỘ CÂN BẰNG TẢI NỘI BỘ(INTERNAL LOAD BALANCER-ILB)
+//TẠO KIỂM TRA TÌNH TRẠNG CƠ BẢN CHO CÁC DỊCH VỤ BACKEND
+gcloud compute health-checks create tcp hc-tcp-80 --port 80
+
+//TẠO NHÓM DỊCH VỤ BACKEND ĐỂ SỬ DỤNG CHO ILB
+gcloud compute backend-services create be-dm-stamford-suricata-asia-southeast1 \
+--load-balancing-scheme=INTERNAL \
+--health-checks=hc-tcp-80 \
+--network=dm-stamford \
+--protocol=TCP \
+--region=asia-southeast1
+
+//THÊM NHÓM IDS INSTANCE ĐƯỢC QUẢN LÝ VÀO NHÓM DỊCH VỤ BACKEND ĐÃ TẠO
+gcloud compute backend-services add-backend be-dm-stamford-suricata-asia-southeast1 \
+--instance-group=mig-dm-stamford-ids-asia-southeast1 \
+--instance-group-zone=asia-southeast1-a \
+--region=asia-southeast1
+
+//TẠO QUY TẮC FRONTEND ĐỂ ĐÓNG VAI TRÒ LÀ ENDPOINT CỦA COLLECTION
+ gcloud compute forwarding-rules create ilb-dm-stamford-suricata-ilb-asia-southeast1 \
+ --load-balancing-scheme=INTERNAL \
+ --backend-service be-dm-stamford-suricata-asia-southeast1 \
+ --is-mirroring-collector \
+ --network=dm-stamford \
+ --region=asia-southeast1 \
+ --subnet=dm-stamford-asia-southeast1-ids \
+ --ip-protocol=TCP \
+ --ports=all
+ 
+//CÀI ĐẶT IDS - Suricata
+//SSH VÀO MÁY ẢO CHỨA IDS
+sudo apt-get update -y
+
+//CÀI ĐẶT CÁC GÓI PHỤ THUỘC CỦA SURICATA 
+sudo apt-get install libpcre3-dbg libpcre3-dev autoconf automake libtool libpcap-dev libnet1-dev libyaml-dev zlib1g-dev libcap-ng-dev libmagic-dev libjansson-dev libjansson4 -y
+sudo apt-get install libnspr4-dev -y
+sudo apt-get install libnss3-dev -y
+sudo apt-get install liblz4-dev -y
+sudo apt install rustc cargo -y
+
+//CÀI ĐẶT SURICATA
+sudo add-apt-repository ppa:oisf/suricata-stable -y
+sudo apt-get update -y
+sudo apt-get install suricata -y
+
+//KIỂM TRA CÀI ĐẶT
+suricata -V
+
+//CẤU HÌNH VÀ XEM XÉT SURICATA
+sudo systemctl stop suricata
+sudo cp /etc/suricata/suricata.yaml /etc/suricata/suricata.backup
+
+//Tải và thay thế tệp config Suricata mới và tệp quy tắc rút gọn
+wget https://storage.googleapis.com/tech-academy-enablement/GCP-Packet-Mirroring-with-OpenSource-IDS/suricata.yaml
+wget https://storage.googleapis.com/tech-academy-enablement/GCP-Packet-Mirroring-with-OpenSource-IDS/my.rules
+sudo mkdir /etc/suricata/poc-rules
+sudo cp my.rules /etc/suricata/poc-rules/my.rules
+sudo cp suricata.yaml /etc/suricata/suricata.yaml
+
+//BẮT ĐẦU DỊCH VỤ SURICATA
+sudo systemctl start suricata
+sudo systemctl restart suricata
+
+//XEM LẠI VÀ THỬ NGHIỆM CÁC QUY TẮC VỪA TẠO TRÊN SURICATA
+cat /etc/suricata/poc-rules/my.rules
+
+//CẤU HÌNH POLICY CHO PACKET MIRROR TRÊN CLOUD SHELL
+gcloud compute packet-mirrorings create mirror-dm-stamford-web \
+--collector-ilb=ilb-dm-stamford-suricata-ilb-asia-southeast1 \
+--network=dm-stamford \
+--mirrored-subnets=dm-stamford-asia-southeast1 \
+--region=asia-southeast1
+
+//KIỂM TRA PACKET MIRROR TRÊN MÁY ẢO IDS
+sudo tcpdump -i ens4 -nn -n "(icmp or port 80) and net 172.21.0.0/24"
+
+//TẠO LƯU LƯỢNG TRUY CẬP ĐẾN MẠNG CON ĐƯỢC MIRROR
+sudo apt install iputils-ping
+ping -c 4 [PUBLIC_IP_WEB1] //Lấy địa chỉ IP khi tcpdump
+ping -c 4 [PUBLIC_IP_WEB2] //Lấy địa chỉ IP khi tcpdump
+//HOẶC TRỰC TIẾP TRUY CẬP THÔNG QUA ĐỊA CHỈ IP
+http://[PUBLIC_IP_WEB1]/
+http://[PUBLIC_IP_WEB2]/
+
+//Kiểm tra quét và cảnh báo của Suricata IDS
+//KIỂM TRA 1: Kiểm tra quy tắc/cảnh báo đầu ra UDP
+dig @8.8.8.8 example.com //Chạy trên 1 trong các web server
+egrep "BAD UDP DNS" /var/log/suricata/eve.json //Chạy trên máy ảo IDS
+
+//KIỂM TRA 2: Kiểm tra quy tắc/cảnh báo đầu ra TCP
+telnet 100.64.1.1 6667 //Chạy trên 1 trong các web server
+egrep "BAD TCP" /var/log/suricata/eve.json //Chạy trên máy ảo IDS
+
+//KIỂM TRA 3: Kiểm tra quy tắc/cảnh báo xâm nhập ICMP
+ping -c 3 [PUBLIC_IP_WEB1] ////Chạy trên Cloud Shell
+egrep "BAD ICMP" /var/log/suricata/eve.json //Chạy trên máy ảo IDS
+
+//KIỂM TRA 4: Kiểm tra quy tắc/cảnh báo xâm nhập HTTP
+Truy cập http://[PUBLIC_IP_WEB1]/index.php
+egrep "BAD HTTP" /var/log/suricata/eve.json //Chạy trên máy ảo IDS
