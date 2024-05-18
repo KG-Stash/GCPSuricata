@@ -1,24 +1,17 @@
-
-
-
 export REGION="${ZONE%-*}"
-
 
 gcloud compute networks create dm-stamford \
 --subnet-mode=custom
-
 
 gcloud compute networks subnets create dm-stamford-$REGION \
 --range=172.21.0.0/24 \
 --network=dm-stamford \
 --region=$REGION
 
-
 gcloud compute networks subnets create dm-stamford-$REGION-ids \
 --range=172.21.1.0/24 \
 --network=dm-stamford \
 --region=$REGION
-
 
 gcloud compute firewall-rules create fw-dm-stamford-allow-any-web \
 --direction=INGRESS \
@@ -27,7 +20,6 @@ gcloud compute firewall-rules create fw-dm-stamford-allow-any-web \
 --action=ALLOW \
 --rules=tcp:80,icmp \
 --source-ranges=0.0.0.0/0
-
 
 gcloud compute firewall-rules create fw-dm-stamford-ids-any-any \
 --direction=INGRESS \
@@ -38,8 +30,6 @@ gcloud compute firewall-rules create fw-dm-stamford-ids-any-any \
 --source-ranges=0.0.0.0/0 \
 --target-tags=ids
 
-
-
 gcloud compute firewall-rules create fw-dm-stamford-iapproxy \
 --direction=INGRESS \
 --priority=1000 \
@@ -48,20 +38,15 @@ gcloud compute firewall-rules create fw-dm-stamford-iapproxy \
 --rules=tcp:22,icmp \
 --source-ranges=35.235.240.0/20
 
-
-
 gcloud compute routers create router-stamford-nat-$REGION \
 --region=$REGION \
 --network=dm-stamford
-
 
 gcloud compute routers nats create nat-gw-dm-stamford-$REGION \
 --router=router-stamford-nat-$REGION \
 --router-region=$REGION \
 --auto-allocate-nat-external-ips \
 --nat-all-subnet-ip-ranges
-
-
 
 gcloud compute instance-templates create template-dm-stamford-web-$REGION \
 --region=$REGION \
@@ -80,19 +65,16 @@ gcloud compute instance-templates create template-dm-stamford-web-$REGION \
   tee /var/www/html/index.html
   systemctl restart apache2'
 
-
-
 gcloud compute instance-groups managed create mig-dm-stamford-web-$REGION \
     --template=template-dm-stamford-web-$REGION \
     --size=2 \
     --zone=$ZONE
 
-
 gcloud compute instance-templates create template-dm-stamford-ids-$REGION \
 --region=$REGION \
 --network=dm-stamford \
+--no-address \
 --subnet=dm-stamford-$REGION-ids \
---machine-type=e2-small \
 --image=ubuntu-1604-xenial-v20200807 \
 --image-project=ubuntu-os-cloud \
 --tags=ids,webserver \
@@ -105,13 +87,10 @@ gcloud compute instance-templates create template-dm-stamford-ids-$REGION \
   tee /var/www/html/index.html
   systemctl restart apache2'
 
-
 gcloud compute instance-groups managed create mig-dm-stamford-ids-$REGION \
     --template=template-dm-stamford-ids-$REGION \
     --size=1 \
     --zone=$ZONE
-
-
 
 gcloud compute health-checks create tcp hc-tcp-80 --port 80
 
@@ -122,12 +101,10 @@ gcloud compute backend-services create be-dm-stamford-suricata-$REGION \
 --protocol=TCP \
 --region=$REGION
 
-
 gcloud compute backend-services add-backend be-dm-stamford-suricata-$REGION \
 --instance-group=mig-dm-stamford-ids-$REGION \
 --instance-group-zone=$ZONE \
 --region=$REGION
-
 
  gcloud compute forwarding-rules create ilb-dm-stamford-suricata-ilb-$REGION \
  --load-balancing-scheme=INTERNAL \
