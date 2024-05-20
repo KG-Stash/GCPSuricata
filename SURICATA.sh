@@ -88,8 +88,8 @@ gcloud compute instance-groups managed create mig-dm-stamford-web-$REGION \
 gcloud compute instance-templates create template-dm-stamford-ids-$REGION \
 --region=$REGION \
 --network=dm-stamford \
---no-address \
 --subnet=dm-stamford-$REGION-ids \
+--machine-type=e2-small \
 --image=ubuntu-1604-xenial-v20200807 \
 --image-project=ubuntu-os-cloud \
 --tags=ids,webserver \
