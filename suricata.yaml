@@ -84,7 +84,7 @@ outputs:
       enabled: yes
       filetype: regular #regular|syslog|unix_dgram|unix_stream|redis
       filename: eve.json
-      prefix: "@GCP: " # prefix to prepend to each log entry
+      #prefix: "@GCP: " # prefix to prepend to each log entry
       #prefix: "@cee: " # prefix to prepend to each log entry
       # the following are valid when type: syslog above
       #identity: "suricata"
